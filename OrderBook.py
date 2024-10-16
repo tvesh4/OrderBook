@@ -1,27 +1,28 @@
+import requests
+
 class Order:
     def __init__(self, quantity, price, order_type):
         self.quantity = quantity
         self.price = price
-        self.order_type = order_type  # 'bid' or 'ask'
+        self.order_type = order_type 
 
     def __repr__(self):
         return f"{self.order_type.capitalize()} Quantity: {self.quantity}, Price: ${self.price:.2f}"
 
-
 class OrderBook:
     def __init__(self):
-        self.bids = []  # List of bid orders
-        self.asks = []  # List of ask orders
+        self.bids = []  # List of buy orders
+        self.asks = []  # List of sell orders
 
-    def add_bid(self, order):
-        self.bids.append(order)
-        self.bids.sort(key=lambda x: x.price, reverse=True)  # Sort bids by price (highest first)
+    def add_order(self, order):
+        if order.order_type == 'buy':
+            self.bids.append(order)
+            self.bids.sort(key=lambda x: x.price, reverse=True)  # Sort bids by price (highest first)
+        else:
+            self.asks.append(order)
+            self.asks.sort(key=lambda x: x.price)  # Sort asks by price (lowest first)
 
-    def add_ask(self, order):
-        self.asks.append(order)
-        self.asks.sort(key=lambda x: x.price)  # Sort asks by price (lowest first)
-
-    def execute_trades(self):
+    def execute_trades(self, wallet):
         while self.bids and self.asks:
             best_bid = self.bids[0]
             best_ask = self.asks[0]
@@ -30,6 +31,12 @@ class OrderBook:
                 trade_quantity = min(best_bid.quantity, best_ask.quantity)
                 trade_price = best_ask.price
 
+                # Calculate profit or loss
+                if best_bid.order_type == 'buy':
+                    wallet['balance'] -= trade_price * trade_quantity
+                else:
+                    wallet['balance'] += trade_price * trade_quantity
+                    
                 print(f"Trade executed: Buy {trade_quantity} shares at ${trade_price:.2f}")
 
                 # Update quantities
@@ -41,6 +48,8 @@ class OrderBook:
                     self.bids.pop(0)
                 if best_ask.quantity == 0:
                     self.asks.pop(0)
+
+                print(f"Updated Wallet Balance: ${wallet['balance']:.2f}")
             else:
                 break  # No more trades can happen
 
@@ -54,40 +63,52 @@ class OrderBook:
         for ask in self.asks:
             print(ask)
 
+def fetch_stock_price(symbol):
+    api_key = '6Z63NAZRH5WRSMUQ'  
+    url = f'https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={symbol}&interval=1min&apikey={api_key}'
+    r = requests.get(url)
+    data = r.json()
+
+    try:
+        latest_time = list(data['Time Series (1min)'].keys())[0]
+        latest_price = float(data['Time Series (1min)'][latest_time]['1. open'])
+        return latest_price
+    except KeyError:
+        print("Error fetching data. Please check the symbol and try again.")
+        return None
 
 def main():
     order_book = OrderBook()
+    wallet = {'balance': 0.0} # Initialize wallet 
+    symbol = input("Enter the stock symbol (e.g., NVDA for NVIDIA): ").strip().upper()
+    stock_price = fetch_stock_price(symbol)
 
-    # Initial order from Participant A
-    initial_ask_price = float(input("Enter the ask price for Participant A's offer: $"))
-    initial_ask_quantity = int(input("Enter the ask quantity for Participant A's offer: "))
-    order_book.add_ask(Order(initial_ask_quantity, initial_ask_price, 'ask'))
-
-    # Initial bid (no trade)
-    initial_bid_price = float(input("Enter the initial bid price: $"))
-    initial_bid_quantity = int(input("Enter the initial bid quantity: "))
-    order_book.add_bid(Order(initial_bid_quantity, initial_bid_price, 'bid'))
-
-    # Display initial state
-    order_book.display_order_book()
+    if stock_price is None:
+        return
+    
+    print(f"Current {symbol} Price: ${stock_price:.2f}")
 
     while True:
-        add_order = input("\nDo you want to add another ask? (yes/no): ").strip().lower()
-        if add_order == 'yes':
-            ask_price = float(input("Enter the ask price: $"))
-            ask_quantity = int(input("Enter the ask quantity: "))
-            order_book.add_ask(Order(ask_quantity, ask_price, 'ask'))
+        action = input("Do you want to place a buy or sell order? (type 'buy' or 'sell', or 'exit' to quit): ").strip().lower()
         
-        # Execute trades based on the current order book
-        order_book.execute_trades()
-
-        # Display final state of the order book
-        order_book.display_order_book()
-
-        continue_trading = input("\nDo you want to continue trading? (yes/no): ").strip().lower()
-        if continue_trading != 'yes':
+        if action == 'exit':
             break
-
+        
+        quantity = int(input("Enter the quantity: "))
+        
+        if action == 'buy':
+            total_cost = stock_price * quantity
+            if total_cost > wallet['balance']:
+                print("Insufficient funds to complete this buy order.")
+                continue
+            
+            order_book.add_order(Order(quantity, stock_price, 'buy'))
+        
+        elif action == 'sell':
+            order_book.add_order(Order(quantity, stock_price, 'sell'))
+        
+        order_book.execute_trades(wallet)  # Execute any trades after adding the order
+        order_book.display_order_book()  # Show the current state of the order book
 
 if __name__ == "__main__":
     main()
